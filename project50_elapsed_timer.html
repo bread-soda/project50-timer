@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Project 50 自訂區間正計時</title>
+<style>
+  :root{color-scheme:light dark;font-family:Inter,"Noto Sans TC",system-ui,sans-serif}
+  *{box-sizing:border-box}
+  body{margin:0;background:transparent;color:#24221f}
+  .card{padding:18px 14px;border:1px solid #e9e1d7;border-radius:16px;background:#fffaf4;max-width:320px}
+  .eyebrow{font-size:12px;font-weight:800;letter-spacing:.12em;color:#b66b2c;text-transform:uppercase}
+  h1{font-size:18px;line-height:1.2;margin:7px 0 6px}
+  .sub{font-size:11px;color:#857a70;margin:0 0 17px}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .tile{border:1.5px solid #f0d4b7;border-radius:12px;background:#fff;min-height:83px;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 3px 0 #f4e4d1}
+  .value{font-size:29px;line-height:1;font-weight:800;font-variant-numeric:tabular-nums;color:#d06b24}
+  .unit{font-size:11px;color:#6f655b;margin-top:8px;letter-spacing:.08em}
+  .foot{font-size:11px;color:#9a7658;margin:17px 0 0}
+  .settings-toggle{margin:15px 0 0;border-top:1px solid #efdfcf}
+  .settings-toggle summary{list-style:none;padding:12px 2px 2px;color:#9a7658;font-size:11px;font-weight:700;cursor:pointer;user-select:none}
+  .settings-toggle summary::-webkit-details-marker{display:none}
+  .settings-toggle summary::before{content:'▸';display:inline-block;margin-right:7px;transition:transform .15s}
+  .settings-toggle[open] summary::before{transform:rotate(90deg)}
+  .settings{margin:10px 0 0;padding:13px;border:1px solid #efdfcf;border-radius:12px;background:#fff}
+  .field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px;font-size:11px;font-weight:700;color:#66594c}
+  input,select{width:100%;padding:8px;border:1px solid #dbcab8;border-radius:8px;background:#fff;color:#24221f;font:inherit;font-size:12px}
+  .actions{display:flex;gap:8px}
+  button{border:0;border-radius:8px;padding:8px 12px;font-size:11px;font-weight:800;cursor:pointer;background:#d06b24;color:#fff}
+  button.secondary{background:#f2e8dd;color:#775839}
+  .error{min-height:14px;color:#c43d33;font-size:11px;margin:8px 0 0}
+  @media(prefers-color-scheme:dark){body{color:#f8eee4}.card{background:#2a241f;border-color:#5d4736}.tile{background:#33291f;border-color:#775337;box-shadow:0 3px 0 #493624}.unit,.sub{color:#c5b7aa}}
+</style>
+</head>
+<body>
+<section class="card" aria-label="Project 50 正計時">
+  <div class="eyebrow">Project 50 · Your Timeline</div>
+  <h1>⏱️ 累積正計時</h1>
+  <p id="sub" class="sub">自訂起點、終點與時區</p>
+  <div class="grid" role="timer" aria-live="off">
+    <div class="tile"><span id="days" class="value">0</span><span class="unit">天</span></div>
+    <div class="tile"><span id="hours" class="value">00</span><span class="unit">小時</span></div>
+    <div class="tile"><span id="minutes" class="value">00</span><span class="unit">分鐘</span></div>
+    <div class="tile"><span id="seconds" class="value">00</span><span class="unit">秒</span></div>
+  </div>
+  <p id="foot" class="foot" role="status">設定時間後開始計時</p>
+  <details class="settings-toggle">
+    <summary>調整起始與終點時間</summary>
+    <form id="settings" class="settings">
+      <label class="field">起始日期與時間<input id="start" type="datetime-local" required></label>
+      <label class="field">終點日期與時間<input id="end" type="datetime-local" required></label>
+      <label class="field">時間基準<select id="zone"><option value="taipei">台北時間（UTC+8）</option><option value="local">此裝置的當地時間</option></select></label>
+      <div class="actions"><button type="submit">套用時間</button><button id="reset" class="secondary" type="button">恢復預設</button></div>
+      <p id="error" class="error" role="alert"></p>
+    </form>
+  </details>
+</section>
+<script>
+  const defaults = {start:'2026-09-18T00:00',end:'2026-11-04T00:00',zone:'taipei'};
+  const key = 'project50-custom-timer-v1';
+  const parts = ['days','hours','minutes','seconds'].map(id => document.getElementById(id));
+  const foot = document.getElementById('foot');
+  const sub = document.getElementById('sub');
+  const form = document.getElementById('settings');
+  const startInput = document.getElementById('start');
+  const endInput = document.getElementById('end');
+  const zoneInput = document.getElementById('zone');
+  const error = document.getElementById('error');
+  let current = {...defaults};
+  try {
+    const saved = JSON.parse(localStorage.getItem(key));
+    if(saved && typeof saved.start === 'string' && typeof saved.end === 'string' && ['taipei','local'].includes(saved.zone)) current = saved;
+  } catch (_) {}
+  function readTime(value,zone){
+    if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return NaN;
+    const [year,month,day,hour,minute] = value.split(/[-T:]/).map(Number);
+    const utc = Date.UTC(year,month-1,day,hour,minute);
+    const check = new Date(utc);
+    if(check.getUTCFullYear()!==year || check.getUTCMonth()!==month-1 || check.getUTCDate()!==day || check.getUTCHours()!==hour || check.getUTCMinutes()!==minute) return NaN;
+    return zone==='taipei' ? utc-8*3600000 : new Date(year,month-1,day,hour,minute).getTime();
+  }
+  function setInputs(){startInput.value=current.start;endInput.value=current.end;zoneInput.value=current.zone;}
+  function format(value){return value.replace('T',' ').replaceAll('-','/');}
+  function tick(){
+    const start = readTime(current.start,current.zone);
+    const end = readTime(current.end,current.zone);
+    const now = Date.now();
+    const elapsed = Math.max(0, Math.floor((Math.min(now,end)-start)/1000));
+    const days = Math.floor(elapsed/86400);
+    const hours = Math.floor(elapsed%86400/3600);
+    const minutes = Math.floor(elapsed%3600/60);
+    const seconds = elapsed%60;
+    [days,hours,minutes,seconds].forEach((value,i)=>parts[i].textContent=i===0?String(value):String(value).padStart(2,'0'));
+    sub.textContent = `${format(current.start)} → ${format(current.end)} · ${current.zone==='taipei'?'台北時間':'此裝置當地時間'}`;
+    foot.textContent = now<start ? '尚未開始，起點到時將自動啟動。' : now>=end ? '已到終點，正計時停在完成時刻。' : '計時中 · 每一秒，都在累積新的自己。';
+  }
+  form.addEventListener('submit',event=>{
+    event.preventDefault();
+    const next={start:startInput.value,end:endInput.value,zone:zoneInput.value};
+    const start=readTime(next.start,next.zone),end=readTime(next.end,next.zone);
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start){error.textContent='請設定有效的日期，且終點必須晚於起點。';return;}
+    error.textContent='';current=next;
+    try{localStorage.setItem(key,JSON.stringify(current));}catch(_){}
+    tick();
+  });
+  document.getElementById('reset').addEventListener('click',()=>{
+    current={...defaults};setInputs();error.textContent='';
+    try{localStorage.removeItem(key);}catch(_){}
+    tick();
+  });
+  setInputs();
+  if(!Number.isFinite(readTime(current.start,current.zone)) || !Number.isFinite(readTime(current.end,current.zone)) || readTime(current.end,current.zone)<=readTime(current.start,current.zone)) {current={...defaults};setInputs();}
+  tick(); setInterval(tick,1000);
+</script>
+</body>
+</html>
